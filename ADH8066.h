@@ -41,7 +41,7 @@
  
  VERSIONS:
     1.0 - 1/20/13 - Rowland O'Flaherty (rowlandoflaherty.com)
-					Daniel Pickem (danielpickem.com)
+                    Daniel Pickem (danielpickem.com)
  
  -------------------------------------------------------------------------------
  */
@@ -114,7 +114,7 @@ public:
     void makeCall(const String &phoneNum);
     void hangUp();
     void getWebsite(const String &url);
-    void getTime();
+    bool getTime();
     
     //--------------------------------------------------------------------------
     // Public Member Variables
@@ -141,13 +141,16 @@ private:
     //--------------------------------------------------------------------------
     // Lifecycle
     //--------------------------------------------------------------------------
+    void constructorHelper();
     void copyHelper(const ADH8066& srcObj);
     
     //--------------------------------------------------------------------------
     // Private Member Functions
     //--------------------------------------------------------------------------
+    bool readCellStream();
     void cellCmd(const String &str, bool endOfLine = true, bool hexFormat = false);
     void printChar(char c, bool hexFormat = false);
+    void parseTime();
     
     //--------------------------------------------------------------------------
     // Private Member Variables
@@ -156,19 +159,29 @@ private:
     int _rxPin; // Receive pin
     int _txPin; // Transmit pin
     
-    
     static const int _baud = 9600; // BAUD rate
     static const int _cmdDelay = 500; // Delay between each command
     
     SoftwareSerial _cellSerial; // Softserial object for GPS
     String _buffer; // Receive data buffer
     
-    static const String _accessPoint = "wap.cingular";
+    // Cell Data
+    String _accessPoint;
+    
+    int _year;
+    int _month;
+    int _day;
+    int _hour;
+    int _min;
+    int _sec;
 };
 
 //------------------------------------------------------------------------------
-// Postfix Increment Operators
+// Other Functions
 //------------------------------------------------------------------------------
-
+int stoi(const String &str);
+float stof(const String &str);
+int hexToInt(char hexChar);
+char hexToChar(char hexCharHigh, char hexCharLow);
 
 #endif

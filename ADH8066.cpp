@@ -3,7 +3,8 @@
  ADH8066.cpp
  ADH8066 Project
  
- Initially created by Rowland O'Flaherty (___WEBSITE___) on 1/20/13.
+ Initially created by Rowland O'Flaherty and Daniel Pickem 
+ (rowlandoflaherty.com and danielpickem.com) on 1/20/13.
  
  Version 1.0
  -------------------------------------------------------------------------------
@@ -28,14 +29,22 @@
 // Lifecycle
 //------------------------------------------------------------------------------
 // Constructors
-ADH8066::ADH8066(int rxPin, int txPin) : _echo(true) {
+ADH8066::ADH8066(int rxPin, int txPin) {
     _rxPin = rxPin;
     _txPin = txPin;
 }
 
 ADH8066::ADH8066(const SoftwareSerial &cellSerial) {
+    _rxPin = -1;
+    _txPin = -1;
     _cellSerial = cellSerial;
-//    _cellSerial.listen();
+    _cellSerial.listen();
+}
+
+// Constructor helper
+void ADH8066::constructorHelper() {
+    _echo = true;
+    _accessPoint = "wap.cingular";
 }
 
 // Destructor
@@ -55,6 +64,13 @@ void ADH8066::copyHelper(const ADH8066& srcObj) {
     _rxPin = srcObj._rxPin;
     _cellSerial = srcObj._cellSerial;
     _buffer = srcObj._buffer;
+    _accessPoint = srcObj._accessPoint;
+    _year = srcObj._year;
+    _month = srcObj._month;
+    _day = srcObj._day;
+    _hour = srcObj._hour;
+    _min = srcObj._min;
+    _sec = srcObj._sec;
 }
 
 //------------------------------------------------------------------------------
@@ -144,8 +160,17 @@ void ADH8066::getWebsite(const String &url) {
     cellCmd(String("\""),true);
 }
 
-void ADH8066::getTime() {
+bool ADH8066::getTime() {
     cellCmd(String("at+cclk?"));
+    
+    bool received;
+    if (readCellStream()) {
+        parseTime();
+        received = true;
+    } else {
+        received = false;
+    }
+    return received;
 }
 
 
@@ -157,6 +182,16 @@ void ADH8066::getTime() {
 //------------------------------------------------------------------------------
 // Private Member Functions
 //------------------------------------------------------------------------------
+bool ADH8066::readCellStream() {
+    if (!_cellSerial.available()) {
+        return false;
+    }
+	while (_cellSerial.available()) {
+        _buffer += (char)_cellSerial.read();
+    }
+    return true;
+}
+
 void ADH8066::cellCmd(const String &str, bool endOfLine, bool hexFormat) {
     for (int i = 0; i < str.length(); i++) {
         printChar(str[i], hexFormat);
@@ -195,5 +230,113 @@ void ADH8066::printChar(char c, bool hexFormat) {
             }
         }
     }
+}
+
+void ADH8066::parseTime() {
+    _year = stoi(_buffer.substring(0,2));
+    _month = stoi(_buffer.substring(3,5));
+    _day = stoi(_buffer.substring(6,8));
+    _hour = stoi(_buffer.substring(9,11));
+    _min = stoi(_buffer.substring(12,14));
+    _sec = stoi(_buffer.substring(15,16));
+}
+
+
+//------------------------------------------------------------------------------
+// Other Functions
+//------------------------------------------------------------------------------
+int stoi(const String &str) {
+    char charBuffer[str.length()+1];
+    str.toCharArray(charBuffer, str.length()+1);
+    return (atoi(charBuffer));
+}
+
+float stof(const String &str) {
+    char charBuffer[str.length()+1];
+    str.toCharArray(charBuffer, str.length()+1);
+    return (atof(charBuffer));
+}
+
+int hexToInt(char hexChar) {
+    switch (hexChar) {
+        case '0':
+            return 0;
+            break;
+            
+        case '1':
+            return 1;
+            break;
+            
+        case '2':
+            return 2;
+            break;
+            
+        case '3':
+            return 3;
+            break;
+            
+        case '4':
+            return 4;
+            break;
+            
+        case '5':
+            return 5;
+            break;
+            
+        case '6':
+            return 6;
+            break;
+            
+        case '7':
+            return 7;
+            break;
+            
+        case '8':
+            return 8;
+            break;
+            
+        case '9':
+            return 9;
+            break;
+            
+        case 'A':
+        case 'a':
+            return 10;
+            break;
+            
+        case 'B':
+        case 'b':
+            return 11;
+            break;
+            
+        case 'C':
+        case 'c':
+            return 12;
+            break;
+            
+        case 'D':
+        case 'd':
+            return 13;
+            break;
+            
+        case 'E':
+        case 'e':
+            return 14;
+            break;
+            
+        case 'F':
+        case 'f':
+            return 15;
+            break;
+
+        default:
+            return -1;
+            break;
+    }
+}
+
+char hexToChar(char hexCharHigh, char hexCharLow) {
+    int hexInt = hexToInt(hexCharHigh)*16 + hexToInt(hexCharLow);
+    return (char)hexInt;
 }
 
