@@ -11,6 +11,11 @@
  */
 
 //------------------------------------------------------------------------------
+// Defines
+//------------------------------------------------------------------------------
+
+
+//------------------------------------------------------------------------------
 // Includes and Namespaces
 //------------------------------------------------------------------------------
 #include "ADH8066.h"
@@ -29,9 +34,12 @@
 // Lifecycle
 //------------------------------------------------------------------------------
 // Constructors
-ADH8066::ADH8066(int rxPin, int txPin) {
+ADH8066::ADH8066(int rxPin, int txPin, int onKeyPin, long baud) {
     _rxPin = rxPin;
     _txPin = txPin;
+    _onKeyPin = onKeyPin;
+    _baud = baud;
+    constructorHelper();
 }
 
 ADH8066::ADH8066(const SoftwareSerial &cellSerial) {
@@ -39,12 +47,12 @@ ADH8066::ADH8066(const SoftwareSerial &cellSerial) {
     _txPin = -1;
     _cellSerial = cellSerial;
     _cellSerial.listen();
+    constructorHelper();
 }
 
 // Constructor helper
 void ADH8066::constructorHelper() {
-    _echo = true;
-    _accessPoint = "wap.cingular";
+    // _accessPoint = "wap.cingular";
 }
 
 // Destructor
@@ -59,9 +67,10 @@ ADH8066::ADH8066(const ADH8066& srcObj) {
 
 // Copy helper function
 void ADH8066::copyHelper(const ADH8066& srcObj) {
-    _echo = srcObj._echo;
     _txPin = srcObj._txPin;
     _rxPin = srcObj._rxPin;
+    _onKeyPin = srcObj._onKeyPin;
+    _baud = srcObj._baud;
     _cellSerial = srcObj._cellSerial;
     _buffer = srcObj._buffer;
     _accessPoint = srcObj._accessPoint;
@@ -70,7 +79,6 @@ void ADH8066::copyHelper(const ADH8066& srcObj) {
     _day = srcObj._day;
     _hour = srcObj._hour;
     _min = srcObj._min;
-    _sec = srcObj._sec;
 }
 
 //------------------------------------------------------------------------------
@@ -99,6 +107,9 @@ void ADH8066::initialize() {
     _cellSerial = SoftwareSerial(_rxPin, _txPin);
     _cellSerial.begin(_baud);
     _cellSerial.listen();
+    
+    pinMode(_onKeyPin, OUTPUT);
+    digitalWrite(_onKeyPin, HIGH);
 }
 
 bool ADH8066::isListening() {
@@ -113,41 +124,155 @@ int ADH8066::available() {
     return _cellSerial.available();
 }
 
+String ADH8066::buffer() {
+    return _buffer;
+}
+
+
+void ADH8066::clearBuffer () {
+    _buffer = "";
+}
+
 bool ADH8066::overflow() {
     return _cellSerial.overflow();
 }
 
-void ADH8066::check() {
+void ADH8066::cellCmd(const String &str, bool endOfLine, bool hexFormat) {    
+    for (int i = 0; i < str.length(); i++) {
+        printChar(str[i], hexFormat);
+        delay(_charDelay);
+    }
+    if (endOfLine) {
+        if (hexFormat) {
+            printChar('\0', hexFormat); delay(_charDelay);
+            printChar('\r', hexFormat); delay(_charDelay);
+            printChar('\0', hexFormat); delay(_charDelay);
+            printChar('\n', hexFormat); delay(_charDelay);
+        } else {
+            printChar('\r', hexFormat); delay(_charDelay);
+            printChar('\n', hexFormat); delay(_charDelay);
+        }
+    }
+    delay(_cmdDelay);
+}
+
+bool ADH8066::isOn() {
+    clearBuffer();
     cellCmd(String("at"));
-    cellCmd(String("at+cpin?"));
-    cellCmd(String("at+csq"));
+    readCellStream(500);
+    clearBuffer();
+    cellCmd(String("at"));
+    readCellStream(500);
+    if (_buffer.indexOf(String("OK")) != -1) {
+        return true;
+    } else {
+        return false;
+    }
+    clearBuffer();
+}
+
+void ADH8066::toggleOnOff() {
+    clearBuffer();
+    digitalWrite(_onKeyPin, LOW);
+    delay(3000);
+    digitalWrite(_onKeyPin, HIGH);
+    delay(3000);
+    clearBuffer();
 }
 
 void ADH8066::turnOn() {
-    
+    if (!isOn()) {
+        toggleOnOff();
+    }
 }
 
 void ADH8066::turnOff() {
-    
+    if (isOn()) {
+        toggleOnOff();
+    }
 }
 
-void ADH8066::sendText(const String &phoneNum, const String &msg) {
+bool ADH8066::sim() {
+    clearBuffer();
+    cellCmd(String("at+cpin?"));
+    readCellStream();
+    
+    if (_buffer.indexOf(String("+CPIN: READY")) == -1) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+int ADH8066::signalQuality() {
+    clearBuffer();
+    cellCmd(String("at+csq"));
+    readCellStream();
+    
+    int index = _buffer.indexOf(String("+CSQ:"));
+    String signalStr = _buffer.substring(index+6);
+    signalStr = signalStr.substring(0, signalStr.indexOf(','));
+    
+    return stoi(signalStr);
+}
+
+bool ADH8066::check() {
+    return (isOn() && sim() && signalQuality() >= 7);
+}
+
+String ADH8066::echoOn() {
+    clearBuffer();
+    cellCmd(String("ate1"));
+    readCellStream(500);
+    return _buffer;
+}
+
+String ADH8066::echoOff() {
+    clearBuffer();
+    cellCmd(String("ate0"));
+    readCellStream(500);
+    return _buffer;
+}
+
+bool ADH8066::sendText(const String &phoneNum, const String &msg) {
+    clearBuffer();
     int subChar = 26;
     cellCmd(String("at+cmgf=1"));
     cellCmd(String("at+cmgs=\"") + phoneNum + String("\""));
     cellCmd(msg,false);
     cellCmd(String((char)subChar),false);
-}
-
-void ADH8066::makeCall(const String &phoneNum) {
-    cellCmd(String("atd") + phoneNum);
-}
-
-void ADH8066::hangUp() {
+    readCellStream();
     
+    if (_buffer.indexOf(String("OK")) != -1) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
-void ADH8066::getWebsite(const String &url) {
+String ADH8066::makeCall(const String &phoneNum) {
+    clearBuffer();
+    cellCmd(String("atd") + phoneNum);
+    readCellStream();
+    return _buffer;
+}
+
+String ADH8066::answer() {
+    clearBuffer();
+    cellCmd(String("ata"));
+    readCellStream();
+    return _buffer;
+}
+
+String ADH8066::hangUp() {
+    clearBuffer();
+    cellCmd(String("ath"));
+    return _buffer;
+}
+
+String ADH8066::getWebsite(const String &url) {
+    clearBuffer();
+    
     cellCmd(String("at+aipdcont=\"") + _accessPoint + String("\""));
     cellCmd(String("at+aipa=1"));
     cellCmd(String("at+aipo=1,,\"") + url + String("\",80,0,,1"));
@@ -158,9 +283,13 @@ void ADH8066::getWebsite(const String &url) {
     cellCmd(String(""),true,true);
     
     cellCmd(String("\""),true);
+    readCellStream();
+    
+    return _buffer;
 }
 
-bool ADH8066::getTime() {
+bool ADH8066::updateTime() {
+    clearBuffer();
     cellCmd(String("at+cclk?"));
     
     bool received;
@@ -173,6 +302,13 @@ bool ADH8066::getTime() {
     return received;
 }
 
+String ADH8066::getTime() {
+    String timeStr;
+    timeStr += String(_year) + String('-') + String(_month) + String('-') + String(_day) + String(' ');
+    timeStr += String(_hour) + String(':') + String(_min);
+    return timeStr;
+}
+
 
 //------------------------------------------------------------------------------
 // Protected Member Functions
@@ -182,63 +318,45 @@ bool ADH8066::getTime() {
 //------------------------------------------------------------------------------
 // Private Member Functions
 //------------------------------------------------------------------------------
-bool ADH8066::readCellStream() {
-    if (!_cellSerial.available()) {
-        return false;
-    }
-	while (_cellSerial.available()) {
-        _buffer += (char)_cellSerial.read();
-    }
-    return true;
-}
-
-void ADH8066::cellCmd(const String &str, bool endOfLine, bool hexFormat) {
-    for (int i = 0; i < str.length(); i++) {
-        printChar(str[i], hexFormat);
-    }
-    if (endOfLine) {
-        if (hexFormat) {
-            printChar('\0', hexFormat); printChar('\r', hexFormat); printChar('\0', hexFormat); printChar('\n', hexFormat);
-        } else {
-            printChar('\r', hexFormat); printChar('\n', hexFormat);
+bool ADH8066::readCellStream(unsigned int readTime) {
+    unsigned long time0 = millis();
+    unsigned long time = time0;
+    unsigned long maxTime = time + readTime;
+    bool dataReceived = false;
+    
+    while ((time < maxTime && time >= time0)) {
+        if (_cellSerial.available()) {
+            while (_cellSerial.available()) {
+                _buffer += (char)_cellSerial.read();
+            }
+            dataReceived = true;
+            delay(10);
         }
-        if (_echo) {
-            Serial.println();
-        }
-    }  
-    delay(_cmdDelay);
+        time = millis();
+    }
+    return dataReceived;
 }
 
 void ADH8066::printChar(char c, bool hexFormat) {
     if (hexFormat) {
-        _cellSerial.print(c, HEX);
-        if (_echo)
-            Serial.print(c, HEX);
+        _cellSerial.print(c, HEX);      
     } else {
        _cellSerial.print(c);
-        if (_echo) {
-            if (c == '\0') {
-                Serial.print("\\0");
-            } else if (c == '\r') {
-                Serial.print("\\r");
-            } else if (c == '\n') {
-                Serial.print("\\n");
-            } else if (c == 26) {
-                Serial.println("\\u");
-            } else {
-                Serial.print(c);
-            }
-        }
+
     }
 }
 
 void ADH8066::parseTime() {
+    int msgStartInd = _buffer.indexOf(String("+CCLK:"));
+    
+    _buffer = _buffer.substring(msgStartInd+8);
+    Serial.println(_buffer);
+    
     _year = stoi(_buffer.substring(0,2));
     _month = stoi(_buffer.substring(3,5));
     _day = stoi(_buffer.substring(6,8));
     _hour = stoi(_buffer.substring(9,11));
     _min = stoi(_buffer.substring(12,14));
-    _sec = stoi(_buffer.substring(15,16));
 }
 
 
